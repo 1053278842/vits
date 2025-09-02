@@ -16,6 +16,9 @@ import re
 from unidecode import unidecode
 from phonemizer import phonemize
 
+import re
+import jieba
+from pypinyin import lazy_pinyin, Style, load_phrases_dict
 
 # Regular expression matching whitespace:
 _whitespace_re = re.compile(r'\s+')
@@ -98,3 +101,23 @@ def english_cleaners2(text):
   phonemes = phonemize(text, language='en-us', backend='espeak', strip=True, preserve_punctuation=True, with_stress=True)
   phonemes = collapse_whitespace(phonemes)
   return phonemes
+
+def chinese_cleaners(text):
+  '''Pipeline for Chinese text'''
+  text=text.replace('、','，').replace('；','，').replace('：','，')
+  words=jieba.lcut(text,cut_all=False)
+  text=''
+  for word in words:
+    bopomofos=lazy_pinyin(word,BOPOMOFO)
+    if not re.search('[\u4e00-\u9fff]',word):
+      text+=word
+      continue
+    for i in range(len(bopomofos)):
+      if re.match('[\u3105-\u3129]',bopomofos[i][-1]):
+        bopomofos[i]+='ˉ'
+    if text!='':
+      text+=' '
+    text+=''.join(bopomofos)
+  if re.match('[ˉˊˇˋ˙]',text[-1]):
+    text += '。'
+  return text
