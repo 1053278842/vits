@@ -108,7 +108,7 @@ def chinese_cleaners(text):
   words=jieba.lcut(text,cut_all=False)
   text=''
   for word in words:
-    bopomofos=lazy_pinyin(word,BOPOMOFO)
+    bopomofos=lazy_pinyin(word,Style.BOPOMOFO)
     if not re.search('[\u4e00-\u9fff]',word):
       text+=word
       continue
