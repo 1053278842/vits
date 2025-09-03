@@ -15,6 +15,7 @@ hyperparameter. Some cleaners are English-specific. You'll typically want to use
 import re
 from unidecode import unidecode
 from phonemizer import phonemize
+from text.mandarin import number_to_chinese, chinese_to_bopomofo, latin_to_bopomofo, chinese_to_romaji, chinese_to_lazy_ipa, chinese_to_ipa, chinese_to_ipa2
 
 import re
 import jieba
@@ -103,21 +104,4 @@ def english_cleaners2(text):
   return phonemes
 
 def chinese_cleaners(text):
-  '''Pipeline for Chinese text'''
-  text=text.replace('、','，').replace('；','，').replace('：','，')
-  words=jieba.lcut(text,cut_all=False)
-  text=''
-  for word in words:
-    bopomofos=lazy_pinyin(word,Style.BOPOMOFO)
-    if not re.search('[\u4e00-\u9fff]',word):
-      text+=word
-      continue
-    for i in range(len(bopomofos)):
-      if re.match('[\u3105-\u3129]',bopomofos[i][-1]):
-        bopomofos[i]+='ˉ'
-    if text!='':
-      text+=' '
-    text+=''.join(bopomofos)
-  if re.match('[ˉˊˇˋ˙]',text[-1]):
-    text += '。'
-  return text
+  return chinese_to_ipa(text)
