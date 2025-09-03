@@ -20,8 +20,8 @@
     "c_kl": 1.0
   },
   "data": {
-    "training_files": "filelists/ljs_audio_text_train_filelist.txt.cleaned",
-    "validation_files": "filelists/ljs_audio_text_val_filelist.txt.cleaned",
+    "training_files": "dataset/filelist_mxj.txt",
+    "validation_files": "dataset/filelist_mxj_val.txt",
     "text_cleaners": [
       "chinese_cleaners"
     ],
