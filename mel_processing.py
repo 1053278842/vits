@@ -95,7 +95,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
     # Expect y is 1D waveform (T,) or 2D (batch, T). Handle both.
     y = _reflect_pad_1d_tensor(y, pad_amount)
 
-    # Compute STFT, return_complex=True for modern PyTorch
+    # Compute STFT with return_complex=False for compatibility
     spec_c = torch.stft(
         y,
         n_fft,
@@ -110,10 +110,10 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
     )
 
     # spec_c shape:
-    #  - if input was 1D: (freq, time) complex
-    #  - if input was (B, T): (B, freq, time) complex
-    # We want magnitude (sqrt(real^2 + imag^2)), so use .abs()
-    spec = spec_c.abs()
+    #  - if input was 1D: (freq, time, 2)
+    #  - if input was (B, T): (B, freq, time, 2)
+    # Compute magnitude: sqrt(real^2 + imag^2) over last dimension
+    spec = torch.sqrt(spec_c.pow(2).sum(-1) + 1e-9)
 
     return spec
 
@@ -127,6 +127,23 @@ def spec_to_mel_torch(spec, n_fft, num_mels, sampling_rate, fmin, fmax):
     if fmax_dtype_device not in mel_basis:
         mel = librosa_mel_fn(sr=sampling_rate, n_fft=n_fft, n_mels=num_mels, fmin=fmin, fmax=fmax)
         mel_basis[fmax_dtype_device] = torch.from_numpy(mel).to(dtype=spec.dtype, device=spec.device)
+    # Ensure spec has frequency dimension matching n_fft//2+1 just before time
+    freq_bins = n_fft // 2 + 1
+    if spec.dim() == 2:
+        if spec.size(0) == freq_bins:
+            pass
+        elif spec.size(1) == freq_bins:
+            spec = spec.transpose(0, 1).contiguous()
+        else:
+            raise RuntimeError(f"spec_to_mel_torch: unexpected spec shape {tuple(spec.shape)}, freq_bins={freq_bins}")
+    elif spec.dim() == 3:
+        # (B, F, T) expected. If (B, T, F), swap last two dims
+        if spec.size(1) == freq_bins:
+            pass
+        elif spec.size(2) == freq_bins:
+            spec = spec.transpose(1, 2).contiguous()
+        else:
+            raise RuntimeError(f"spec_to_mel_torch: unexpected batched spec shape {tuple(spec.shape)}, freq_bins={freq_bins}")
     spec = torch.matmul(mel_basis[fmax_dtype_device], spec)
     spec = spectral_normalize_torch(spec)
     return spec
@@ -161,8 +178,33 @@ def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size,
         return_complex=False
     )
 
-    spec = spec_c.abs()
-    spec = torch.matmul(mel_basis[fmax_dtype_device], spec)
+    # spec_c: (..., freq, time, 2) -> magnitude (..., freq, time)
+    spec = torch.sqrt(spec_c.pow(2).sum(-1) + 1e-9)
+
+    # Ensure frequency axis is just before time
+    freq_bins = n_fft // 2 + 1
+    if spec.dim() == 2:
+        # (F, T) or (T, F)
+        if spec.size(0) == freq_bins:
+            pass
+        elif spec.size(1) == freq_bins:
+            spec = spec.transpose(0, 1).contiguous()
+        else:
+            raise RuntimeError(f"mel_spectrogram_torch: unexpected spec shape {tuple(spec.shape)}, freq_bins={freq_bins}")
+        spec = torch.matmul(mel_basis[fmax_dtype_device], spec)
+    elif spec.dim() == 3:
+        # (B, F, T) or (B, T, F)
+        if spec.size(1) == freq_bins:
+            pass
+        elif spec.size(2) == freq_bins:
+            spec = spec.transpose(1, 2).contiguous()
+        else:
+            raise RuntimeError(f"mel_spectrogram_torch: unexpected batched spec shape {tuple(spec.shape)}, freq_bins={freq_bins}")
+        # Broadcast mel basis over batch: (1, M, F) x (B, F, T) -> (B, M, T)
+        mel_b = mel_basis[fmax_dtype_device].unsqueeze(0)
+        spec = torch.matmul(mel_b, spec)
+    else:
+        raise RuntimeError(f"mel_spectrogram_torch: unsupported spec rank {spec.dim()}")
     spec = spectral_normalize_torch(spec)
 
     return spec
