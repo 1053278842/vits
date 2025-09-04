@@ -2,7 +2,7 @@ import torch
 import utils
 import soundfile as sf
 from models import SynthesizerTrn
-from text import text_to_sequence, symbols  # 音素转 id
+from text import symbols  # 直接用 symbols，不用 text_to_sequence
 
 # ===== 配置 =====
 checkpoint_path = "./logs/mxj_model/G_14000.pth"
@@ -12,8 +12,6 @@ phoneme_text = "xə↑ tʰa→ ts⁼aɪ↓ i↓tʃʰi↓↑ ni↓↑ ..."
 
 # ===== 读取配置 =====
 hps = utils.get_hparams_from_file(config_path)
-
-# 单说话人模型，添加 symbols
 hps.symbols = symbols
 
 # ===== 构建模型 =====
@@ -27,8 +25,8 @@ net_g = SynthesizerTrn(
 _ = net_g.eval()
 _ = utils.load_checkpoint(checkpoint_path, net_g, None)
 
-# ===== 音素文本转序列（不使用 cleaner） =====
-sequence = text_to_sequence(phoneme_text, hps.symbols, cleaner_names=[])
+# ===== 音素文本转 id（手动映射） =====
+sequence = [hps.symbols.index(s) for s in phoneme_text.split() if s in hps.symbols]
 x_tst = torch.LongTensor(sequence).unsqueeze(0)
 
 # ===== 推理 =====
