@@ -70,14 +70,38 @@ class TextAudioLoader(torch.utils.data.Dataset):
         audio_norm = audio / self.max_wav_value
         audio_norm = audio_norm.unsqueeze(0)
         spec_filename = filename.replace(".wav", ".spec.pt")
+        recompute_spec = True
+        spec = None
         if os.path.exists(spec_filename):
-            spec = torch.load(spec_filename)
-        else:
+            try:
+                loaded = torch.load(spec_filename)
+                if isinstance(loaded, torch.Tensor):
+                    if loaded.dim() == 3 and loaded.size(0) == 1:
+                        loaded = loaded.squeeze(0)
+                    if loaded.dim() == 1:
+                        loaded = loaded.unsqueeze(1)
+                    if torch.is_complex(loaded):
+                        loaded = loaded.abs()
+                    if loaded.dim() == 2 and loaded.size(1) > 0:
+                        spec = loaded.float()
+                        recompute_spec = False
+                    else:
+                        print(f"[TextAudioLoader.get_audio] 缓存形状异常，将重算: file={filename}, shape={tuple(getattr(loaded,'shape',()))}")
+                else:
+                    print(f"[TextAudioLoader.get_audio] 非张量缓存，将重算: file={filename}, type={type(loaded)}")
+            except Exception:
+                print(f"[TextAudioLoader.get_audio] 加载缓存失败，将重算: file={filename}")
+                recompute_spec = True
+        if recompute_spec:
             spec = spectrogram_torch(audio_norm, self.filter_length,
                 self.sampling_rate, self.hop_length, self.win_length,
                 center=False)
             spec = torch.squeeze(spec, 0)
+            if spec.dim() == 1:
+                spec = spec.unsqueeze(1)
+            spec = spec.float()
             torch.save(spec, spec_filename)
+            print(f"[TextAudioLoader.get_audio] 已重算并保存 spec: file={filename}, spec_shape={tuple(spec.shape)}")
         return spec, audio_norm
 
     def get_text(self, text):
@@ -208,14 +232,38 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
         audio_norm = audio / self.max_wav_value
         audio_norm = audio_norm.unsqueeze(0)
         spec_filename = filename.replace(".wav", ".spec.pt")
+        recompute_spec = True
+        spec = None
         if os.path.exists(spec_filename):
-            spec = torch.load(spec_filename)
-        else:
+            try:
+                loaded = torch.load(spec_filename)
+                if isinstance(loaded, torch.Tensor):
+                    if loaded.dim() == 3 and loaded.size(0) == 1:
+                        loaded = loaded.squeeze(0)
+                    if loaded.dim() == 1:
+                        loaded = loaded.unsqueeze(1)
+                    if torch.is_complex(loaded):
+                        loaded = loaded.abs()
+                    if loaded.dim() == 2 and loaded.size(1) > 0:
+                        spec = loaded.float()
+                        recompute_spec = False
+                    else:
+                        print(f"[TextAudioSpeakerLoader.get_audio] 缓存形状异常，将重算: file={filename}, shape={tuple(getattr(loaded,'shape',()))}")
+                else:
+                    print(f"[TextAudioSpeakerLoader.get_audio] 非张量缓存，将重算: file={filename}, type={type(loaded)}")
+            except Exception:
+                print(f"[TextAudioSpeakerLoader.get_audio] 加载缓存失败，将重算: file={filename}")
+                recompute_spec = True
+        if recompute_spec:
             spec = spectrogram_torch(audio_norm, self.filter_length,
                 self.sampling_rate, self.hop_length, self.win_length,
                 center=False)
             spec = torch.squeeze(spec, 0)
+            if spec.dim() == 1:
+                spec = spec.unsqueeze(1)
+            spec = spec.float()
             torch.save(spec, spec_filename)
+            print(f"[TextAudioSpeakerLoader.get_audio] 已重算并保存 spec: file={filename}, spec_shape={tuple(spec.shape)}")
         return spec, audio_norm
 
     def get_text(self, text):
