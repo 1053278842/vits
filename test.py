@@ -13,6 +13,11 @@ phoneme_text = "xə↑ tʰa→ ts⁼aɪ↓ i↓tʃʰi↓↑ ni↓↑ ..."  # 你
 # ===== 读取配置 =====
 hps = utils.get_hparams_from_file(config_path)
 
+# 单说话人模型，添加 symbols
+from text import symbols  # 你的 repo 里 text.py 通常会有 symbols 列表
+hps.symbols = symbols
+
+
 # ===== 构建模型 =====
 net_g = SynthesizerTrn(
     len(hps.symbols),
