@@ -20,8 +20,8 @@
     "c_kl": 1.0
   },
   "data": {
-    "training_files": "dataset/filelist_mxj.txt",
-    "validation_files": "dataset/filelist_mxj_val.txt",
+    "training_files": "dataset/filelist_mxj.txt.cleaned_train",
+    "validation_files": "dataset/filelist_mxj.txt.cleaned_val",
     "text_cleaners": [
       "chinese_cleaners"
     ],
