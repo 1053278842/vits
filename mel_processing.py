@@ -57,20 +57,25 @@ def _reflect_pad_1d_tensor(y: torch.Tensor, pad_amount: int) -> torch.Tensor:
     """
     if pad_amount <= 0:
         return y
+    # Determine last dimension length (time axis)
     if y.dim() == 1:
-        # 1D signal
-        return F.pad(y, (pad_amount, pad_amount), mode='reflect')
+        t = y.size(0)
+    else:
+        t = y.size(-1)
+    # Reflect padding requires pad < t. If too short, fall back to replicate.
+    use_reflect = pad_amount < t
+    pad_mode = 'reflect' if use_reflect else 'replicate'
+    if y.dim() == 1:
+        return F.pad(y, (pad_amount, pad_amount), mode=pad_mode)
     elif y.dim() == 2:
-        # (batch, time)
-        # F.pad supports 3D with (B, C, T) so unsqueeze channel dim
-        return F.pad(y.unsqueeze(1), (pad_amount, pad_amount), mode='reflect').squeeze(1)
+        return F.pad(y.unsqueeze(1), (pad_amount, pad_amount), mode=pad_mode).squeeze(1)
     else:
         # For ND (e.g., (B, C, T) or more), reshape to (-1, T) and pad
         orig_shape = y.shape
         last_dim = orig_shape[-1]
         leading = int(np.prod(orig_shape[:-1]))
         y_reshaped = y.contiguous().view(leading, last_dim)
-        y_padded = F.pad(y_reshaped, (pad_amount, pad_amount), mode='reflect')
+        y_padded = F.pad(y_reshaped, (pad_amount, pad_amount), mode=pad_mode)
         new_last = y_padded.shape[-1]
         return y_padded.view(*orig_shape[:-1], new_last)
 
