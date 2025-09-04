@@ -3,7 +3,8 @@ import soundfile as sf
 import numpy as np
 
 DATA_DIR = "dataset/audio"
-TARGET_DTYPE = 'float32'  # 统一为 float32
+TARGET_DTYPE = np.float32  # numpy dtype
+TARGET_SUBTYPE = 'FLOAT'   # 对应 soundfile subtype
 
 def process_wav(path, target_dtype=TARGET_DTYPE):
     data, sr = sf.read(path)
@@ -14,13 +15,13 @@ def process_wav(path, target_dtype=TARGET_DTYPE):
         data = data.mean(axis=1)
         changed = True
 
-    # 如果采样大小不一致，统一为 float32
-    if data.dtype != np.dtype(target_dtype):
-        data = data.astype(target_dtype)
+    # 统一采样大小
+    if data.dtype != TARGET_DTYPE:
+        data = data.astype(TARGET_DTYPE)
         changed = True
 
     if changed:
-        sf.write(path, data, sr, subtype=target_dtype)
+        sf.write(path, data, sr, subtype=TARGET_SUBTYPE)
         return True
     return False
 
