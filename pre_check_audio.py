@@ -1,7 +1,7 @@
 import os
 import librosa
 
-DATA_DIR = "./wavs"  # 改成你音频文件的目录
+DATA_DIR = "./dataset/audio/mxj"  
 MIN_LENGTH = 1024
 
 min_len = float("inf")
