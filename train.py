@@ -128,6 +128,9 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     if writers is not None:
         writer, writer_eval = writers
 
+    # 统一处理 mel_fmax，如果为 None 就用 Nyquist 频率
+    mel_fmax = hps.data.mel_fmax if hps.data.mel_fmax is not None else hps.data.sampling_rate / 2
+
     train_loader.batch_sampler.set_epoch(epoch)
     global global_step
 
@@ -142,9 +145,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             y_hat, l_length, attn, ids_slice, x_mask, z_mask, \
             (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(x, x_lengths, spec, spec_lengths)
 
-            # 处理 mel_fmax = None 的情况
-            mel_fmax = hps.data.mel_fmax if hps.data.mel_fmax is not None else hps.data.sampling_rate / 2
-
+            # 直接使用统一处理过的 mel_fmax
             mel = spec_to_mel_torch(
                 spec,
                 hps.data.filter_length,
@@ -165,6 +166,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 hps.data.mel_fmin,
                 mel_fmax
             )
+
 
             y = commons.slice_segments(y, ids_slice * hps.data.hop_length, hps.train.segment_size)  # slice
 
