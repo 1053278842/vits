@@ -430,7 +430,17 @@ class SynthesizerTrn(nn.Module):
     self.upsample_rates = upsample_rates
     self.upsample_initial_channel = upsample_initial_channel
     self.upsample_kernel_sizes = upsample_kernel_sizes
-    self.segment_size = segment_size
+    # segment_size is provided in waveform samples. Convert to frame units
+    # by dividing by total upsample (i.e., hop_length = product of upsample_rates).
+    # Guard with max(1, ...) to avoid zero.
+    try:
+      hop_length = math.prod(upsample_rates)
+    except AttributeError:
+      # For Python versions without math.prod (should not happen here), fallback
+      hop_length = 1
+      for r in upsample_rates:
+        hop_length *= r
+    self.segment_size = max(1, segment_size // hop_length)
     self.n_speakers = n_speakers
     self.gin_channels = gin_channels
 

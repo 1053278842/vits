@@ -46,21 +46,42 @@ def rand_gumbel_like(x):
 
 
 def slice_segments(x, ids_str, segment_size=4):
-  ret = torch.zeros_like(x[:, :, :segment_size])
-  for i in range(x.size(0)):
-    idx_str = ids_str[i]
-    idx_end = idx_str + segment_size
-    ret[i] = x[i, :, idx_str:idx_end]
+  b, d, t = x.size()
+  safe_seg = max(1, int(segment_size))
+  ret = torch.zeros(b, d, safe_seg, dtype=x.dtype, device=x.device)
+  for i in range(b):
+    start = int(ids_str[i])
+    if t <= 0:
+      continue
+    # Clamp start to valid range [0, max(0, t - safe_seg)]
+    start = max(0, min(start, max(0, t - safe_seg)))
+    end = start + safe_seg
+    slice_i = x[i, :, start:end]
+    cur = slice_i.size(-1)
+    if cur == safe_seg:
+      ret[i] = slice_i
+    elif cur > 0:
+      # pad right if near the end
+      ret[i, :, :cur] = slice_i
+    # else leave zeros (all padding) if cur == 0
   return ret
 
 
 def rand_slice_segments(x, x_lengths=None, segment_size=4):
   b, d, t = x.size()
-  if x_lengths is None:
-    x_lengths = t
-  ids_str_max = x_lengths - segment_size + 1
-  ids_str = (torch.rand([b]).to(device=x.device) * ids_str_max).to(dtype=torch.long)
-  ret = slice_segments(x, ids_str, segment_size)
+  safe_seg = max(1, int(segment_size))
+  if isinstance(x_lengths, torch.Tensor):
+    lengths = x_lengths.clone().detach().to(device=x.device)
+  elif x_lengths is None:
+    lengths = torch.full((b,), t, dtype=torch.long, device=x.device)
+  else:
+    lengths = torch.as_tensor(x_lengths, device=x.device)
+  # ensure each length at least 1 and not greater than t
+  lengths = torch.clamp(lengths, min=1, max=t if t > 0 else 1)
+  ids_str_max = torch.clamp(lengths - safe_seg, min=0)
+  rand01 = torch.rand([b], device=x.device)
+  ids_str = (rand01 * (ids_str_max + 1).to(rand01.dtype)).to(dtype=torch.long)
+  ret = slice_segments(x, ids_str, safe_seg)
   return ret, ids_str
 
 
