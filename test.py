@@ -8,7 +8,10 @@ from text import symbols  # 直接用 symbols，不用 text_to_sequence
 checkpoint_path = "./logs/mxj_model/G_14000.pth"
 config_path = "./dataset/mxj_config.json"
 output_wav = "./dataset/test_14000.wav"
-phoneme_text = "xə↑ tʰa→ ts⁼aɪ↓ i↓tʃʰi↓↑ ni↓↑ p⁼u↑s`ɹ`↓ iɛ↓↑ p⁼i↓↑ xə↑ wo↓↑ ts⁼aɪ↓ i↓tʃʰi↓↑ k⁼əŋ↓ kʰaɪ→ʃin→ i↓t⁼jɛn↓↑ ma ..."
+with open("dataset/filelist_mxj.txt.cleaned_val", "r", encoding="utf-8") as f:
+    line = f.readline()
+phoneme_text = line.strip().split("|")[1]  # 第二列是音素
+
 
 # ===== 读取配置 =====
 hps = utils.get_hparams_from_file(config_path)
