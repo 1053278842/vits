@@ -128,7 +128,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
     if writers is not None:
         writer, writer_eval = writers
 
-    accumulate_grad_batches = getattr(hps.train, "accumulate_grad_batches", 1)
+    accumulation_steps = getattr(hps.train, "accumulation_steps", 1)
     train_loader.batch_sampler.set_epoch(epoch)
     global global_step
 
@@ -142,38 +142,33 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         spec, spec_lengths = spec.cuda(rank, non_blocking=True), spec_lengths.cuda(rank, non_blocking=True)
         y, y_lengths = y.cuda(rank, non_blocking=True), y_lengths.cuda(rank, non_blocking=True)
 
-        # ================= Discriminator =================
         with autocast(enabled=hps.train.fp16_run):
             y_hat, l_length, attn, ids_slice, x_mask, z_mask, \
             (z, z_p, m_p, logs_p, m_q, logs_q) = net_g(x, x_lengths, spec, spec_lengths)
 
-            mel = spec_to_mel_torch(
-                spec, hps.data.filter_length, hps.data.n_mel_channels, hps.data.sampling_rate,
-                hps.data.mel_fmin, hps.data.mel_fmax
-            )
+            # 新版 spec_to_mel_torch 不再需要传参数
+            mel = spec_to_mel_torch(spec)
             y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
-            y_hat_mel = mel_spectrogram_torch(
-                y_hat.squeeze(1),
-                hps.data.filter_length,
-                hps.data.n_mel_channels,
-                hps.data.sampling_rate,
-                hps.data.hop_length,
-                hps.data.win_length,
-                hps.data.mel_fmin,
-                hps.data.mel_fmax
-            )
+            y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1))  # mel_spectrogram_torch 可适配你的闭包版本
 
             y = commons.slice_segments(y, ids_slice * hps.data.hop_length, hps.train.segment_size)
 
+            # Discriminator
             y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
             with autocast(enabled=False):
                 loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
-                loss_disc_all = loss_disc / accumulate_grad_batches  # scale for gradient accumulation
+                loss_disc_all = loss_disc / accumulation_steps
 
         scaler.scale(loss_disc_all).backward()
+        if (batch_idx + 1) % accumulation_steps == 0:
+            scaler.unscale_(optim_d)
+            grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
+            scaler.step(optim_d)
+            scaler.update()
+            optim_d.zero_grad()
 
-        # ================= Generator =================
         with autocast(enabled=hps.train.fp16_run):
+            # Generator
             y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
             with autocast(enabled=False):
                 loss_dur = torch.sum(l_length.float())
@@ -181,64 +176,61 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
                 loss_fm = feature_loss(fmap_r, fmap_g)
                 loss_gen, losses_gen = generator_loss(y_d_hat_g)
-                loss_gen_all = (loss_gen + loss_fm + loss_mel + loss_dur + loss_kl) / accumulate_grad_batches
+                loss_gen_all = (loss_gen + loss_fm + loss_mel + loss_dur + loss_kl) / accumulation_steps
 
         scaler.scale(loss_gen_all).backward()
-
-        # ================= 梯度累积更新 =================
-        if (batch_idx + 1) % accumulate_grad_batches == 0:
-            scaler.unscale_(optim_d)
-            grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
-            scaler.step(optim_d)
-
+        if (batch_idx + 1) % accumulation_steps == 0:
             scaler.unscale_(optim_g)
             grad_norm_g = commons.clip_grad_value_(net_g.parameters(), None)
             scaler.step(optim_g)
             scaler.update()
-
-            optim_d.zero_grad()
             optim_g.zero_grad()
 
-        # ================= Logging =================
-        if rank == 0 and global_step % hps.train.log_interval == 0:
-            lr = optim_g.param_groups[0]['lr']
-            losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl]
-            logger.info(f'Train Epoch: {epoch} [{100. * batch_idx / len(train_loader):.0f}%]')
-            logger.info([x.item() for x in losses] + [global_step, lr])
+        if rank == 0:
+            if global_step % hps.train.log_interval == 0:
+                lr = optim_g.param_groups[0]['lr']
+                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_dur, loss_kl]
+                logger.info('Train Epoch: {} [{:.0f}%]'.format(
+                    epoch,
+                    100. * batch_idx / len(train_loader)))
+                logger.info([x.item() for x in losses] + [global_step, lr])
 
-            scalar_dict = {
-                "loss/g/total": loss_gen_all,
-                "loss/d/total": loss_disc_all,
-                "learning_rate": lr,
-                "grad_norm_d": grad_norm_d,
-                "grad_norm_g": grad_norm_g
-            }
-            scalar_dict.update({"loss/g/fm": loss_fm, "loss/g/mel": loss_mel,
-                                "loss/g/dur": loss_dur, "loss/g/kl": loss_kl})
-            scalar_dict.update({f"loss/g/{i}": v for i, v in enumerate(losses_gen)})
-            scalar_dict.update({f"loss/d_r/{i}": v for i, v in enumerate(losses_disc_r)})
-            scalar_dict.update({f"loss/d_g/{i}": v for i, v in enumerate(losses_disc_g)})
+                scalar_dict = {
+                    "loss/g/total": loss_gen_all * accumulation_steps,
+                    "loss/d/total": loss_disc_all * accumulation_steps,
+                    "learning_rate": lr,
+                    "grad_norm_d": grad_norm_d,
+                    "grad_norm_g": grad_norm_g
+                }
+                scalar_dict.update({
+                    "loss/g/fm": loss_fm,
+                    "loss/g/mel": loss_mel,
+                    "loss/g/dur": loss_dur,
+                    "loss/g/kl": loss_kl
+                })
+                scalar_dict.update({"loss/g/{}".format(i): v for i, v in enumerate(losses_gen)})
+                scalar_dict.update({"loss/d_r/{}".format(i): v for i, v in enumerate(losses_disc_r)})
+                scalar_dict.update({"loss/d_g/{}".format(i): v for i, v in enumerate(losses_disc_g)})
 
-            image_dict = {
-                "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].cpu().numpy()),
-                "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy()),
-                "all/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy()),
-                "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].cpu().numpy())
-            }
+                image_dict = {
+                    "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+                    "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+                    "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+                    "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy())
+                }
+                utils.summarize(writer=writer, global_step=global_step, images=image_dict, scalars=scalar_dict)
 
-            utils.summarize(writer=writer, global_step=global_step, images=image_dict, scalars=scalar_dict)
-
-        if rank == 0 and global_step % hps.train.eval_interval == 0 and eval_loader is not None:
-            evaluate(hps, net_g, eval_loader, writer_eval)
-            utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch,
-                                  os.path.join(hps.model_dir, f"G_{global_step}.pth"))
-            utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch,
-                                  os.path.join(hps.model_dir, f"D_{global_step}.pth"))
-
+            if global_step % hps.train.eval_interval == 0:
+                evaluate(hps, net_g, eval_loader, writer_eval)
+                utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch,
+                                      os.path.join(hps.model_dir, f"G_{global_step}.pth"))
+                utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch,
+                                      os.path.join(hps.model_dir, f"D_{global_step}.pth"))
         global_step += 1
 
     if rank == 0:
-        logger.info(f'====> Epoch: {epoch}')
+        logger.info('====> Epoch: {}'.format(epoch))
+
 
  
 def evaluate(hps, generator, eval_loader, writer_eval):
