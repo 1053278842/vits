@@ -1,35 +1,38 @@
 import os
-import soundfile as sf
+import librosa
 
-# 数据目录
-DATA_DIR = "dataset/audio/mxj"
-FILTER_LENGTH = 1024  # 根据你的 hps.filter_length 设置
+DATA_DIR = "./wavs"  # 改成你音频文件的目录
+MIN_LENGTH = 1024
 
-def check_audio_files(data_dir, filter_length):
-    min_len = 1e9
-    bad_files = []
+min_len = float("inf")
+short_count = 0
+stereo_files = []
 
-    for root, _, files in os.walk(data_dir):
-        for f in files:
-            if not f.endswith(".wav"):
-                continue
-            path = os.path.join(root, f)
-            try:
-                with sf.SoundFile(path) as f_obj:
-                    length = len(f_obj)  # 采样点数
-                    if length < min_len:
-                        min_len = length
-                    if length < filter_length:
-                        bad_files.append((path, length))
-            except Exception as e:
-                print(f"[ERROR] {path}: {e}")
+for root, dirs, files in os.walk(DATA_DIR):
+    for file in files:
+        if file.lower().endswith(".wav"):
+            filepath = os.path.join(root, file)
+            # sr=None 表示不重采样，返回原始声道
+            wav, sr = librosa.load(filepath, sr=None, mono=False)
 
-    print(f"\n最短音频长度: {min_len} 采样点")
-    print(f"小于 {filter_length} 的音频文件数量: {len(bad_files)}\n")
-    for path, length in bad_files[:30]:  # 打印前 30 个
-        print(f"{path} -> {length}")
-    if len(bad_files) > 30:
-        print(f"... 还有 {len(bad_files) - 30} 个")
+            # 检查声道数
+            if wav.ndim > 1:
+                stereo_files.append(filepath)
 
-if __name__ == "__main__":
-    check_audio_files(DATA_DIR, FILTER_LENGTH)
+            # 统一转成单声道再检查长度
+            if wav.ndim > 1:
+                wav = wav.mean(axis=0)
+
+            if len(wav) < min_len:
+                min_len = len(wav)
+            if len(wav) < MIN_LENGTH:
+                short_count += 1
+
+print(f"最短音频长度: {min_len} 采样点")
+print(f"小于 {MIN_LENGTH} 的音频文件数量: {short_count}")
+print(f"双声道音频数量: {len(stereo_files)}")
+
+if stereo_files:
+    print("双声道文件示例（最多列出前10个）：")
+    for f in stereo_files[:10]:
+        print("  ", f)
