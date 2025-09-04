@@ -106,7 +106,7 @@ def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False)
         pad_mode='reflect',
         normalized=False,
         onesided=True,
-        return_complex=True
+        return_complex=False
     )
 
     # spec_c shape:
@@ -158,7 +158,7 @@ def mel_spectrogram_torch(y, n_fft, num_mels, sampling_rate, hop_size, win_size,
         pad_mode='reflect',
         normalized=False,
         onesided=True,
-        return_complex=True
+        return_complex=False
     )
 
     spec = spec_c.abs()
