@@ -1,10 +1,9 @@
 import os
-import torchaudio
+import soundfile as sf
 
-# 你的数据路径
+# 数据目录
 DATA_DIR = "dataset/audio/mxj"
-# 频谱参数，和 hps 里保持一致
-FILTER_LENGTH = 1024  # 例如 1024 或 2048
+FILTER_LENGTH = 1024  # 根据你的 hps.filter_length 设置
 
 def check_audio_files(data_dir, filter_length):
     min_len = 1e9
@@ -16,18 +15,18 @@ def check_audio_files(data_dir, filter_length):
                 continue
             path = os.path.join(root, f)
             try:
-                wav, sr = torchaudio.load(path)
-                length = wav.size(-1)
-                if length < min_len:
-                    min_len = length
-                if length < filter_length:
-                    bad_files.append((path, length))
+                with sf.SoundFile(path) as f_obj:
+                    length = len(f_obj)  # 采样点数
+                    if length < min_len:
+                        min_len = length
+                    if length < filter_length:
+                        bad_files.append((path, length))
             except Exception as e:
                 print(f"[ERROR] {path}: {e}")
 
     print(f"\n最短音频长度: {min_len} 采样点")
     print(f"小于 {filter_length} 的音频文件数量: {len(bad_files)}\n")
-    for path, length in bad_files[:30]:  # 只先打印前 30 个
+    for path, length in bad_files[:30]:  # 打印前 30 个
         print(f"{path} -> {length}")
     if len(bad_files) > 30:
         print(f"... 还有 {len(bad_files) - 30} 个")
