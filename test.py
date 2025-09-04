@@ -13,7 +13,10 @@ val_filelist = "./dataset/filelist_mxj.txt.cleaned_val"
 output_wav = "./dataset/test_14000.wav"
 
 # ===== 读取配置 =====
-hps = utils.get_hparams_from_file(config_path)
+from text.symbols import symbols  # 导入音素或字符表
+hps = utils.get_hparams_from_file(config_path)  # 读你的 config
+hps.symbols = symbols  # 手动添加 symbols
+
 
 # ===== 构建模型 =====
 net_g = SynthesizerTrn(
